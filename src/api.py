@@ -28,7 +28,7 @@ async def query_with_retry(inputs: List[str], **kwargs) -> List[JSON]:
         else:
             kwargs["messages"] = [{"role": "user", "content": inputs[0]}]
             if "best_of" in kwargs:
-                kwargs.pop('best_of')
+                kwargs.pop("best_of")
     else:
         caller = acreate
         kwargs["prompt"] = inputs
@@ -161,6 +161,7 @@ if __name__ == "__main__":
         api_keys = os.getenv("OPENAI_API_KEY_POOL").split(",")
 
         def postprocesser(inps, outs):
+            del inps
             return [{"text": out["text"]} for out in outs]
 
         pipeline = [
