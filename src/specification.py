@@ -6,22 +6,26 @@ from typing import Any, Mapping, Callable, Optional, Union, List
 
 @dataclass
 class EndPointArgs:
-    max_tokens: int = 16
-    n: int = 1
-    temperature: float = 0.0
+    max_tokens: Optional[int] = None
+    n: Optional[int] = None
+    temperature: Optional[float] = None
     api_key: Optional[str] = None
+
+    def as_dict(self) -> Mapping[str, Any]:
+        """Returns the arguments as a dictionary."""
+        return {k: v for k, v in self.__dict__.items() if v is not None}
 
 
 @dataclass
 class OpenAIEndPointArgs(EndPointArgs):
     model: str = "text-davinci-003"
-    n: int = 1
-    top_p: float = 1.0
-    temperature: float = 0.0
-    frequency_penalty: float = 0.0
-    presence_penalty: float = 0.0
-    max_tokens: int = 16
-    best_of: int = 1
+    n:Optional[int] =  None
+    top_p: Optional[float] = None
+    temperature: Optional[float] = None
+    frequency_penalty: Optional[float] = None
+    presence_penalty: Optional[float] = None
+    max_tokens: Optional[int] = None
+    best_of: Optional[int] = None
     logit_bias: Mapping[str, float] = field(default_factory=dict)
     api_key: Optional[str] = None
     stop: Optional[Union[List[str], str]] = None
@@ -44,6 +48,7 @@ def preprocesser(inputs: List[JSON]) -> List[STRINGMAP]:
 
 def postprocesser(inputs: List[JSON], outputs: List[JSON]) -> List[JSON]:
     """Postprocesses the inputs."""
+    del inputs
     return outputs
 
 @dataclass

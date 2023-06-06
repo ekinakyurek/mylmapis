@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import dataclasses
 from typing import List, Mapping, Any, Callable, Optional, Tuple
 import openai
 from .specification import EndPointSpec
@@ -28,7 +27,8 @@ async def query_with_retry(inputs: List[str], **kwargs) -> List[JSON]:
             return [response[0] for response in responses]
         else:
             kwargs["messages"] = [{"role": "user", "content": inputs[0]}]
-            kwargs.pop('best_of')
+            if "best_of" in kwargs:
+                kwargs.pop('best_of')
     else:
         caller = acreate
         kwargs["prompt"] = inputs
@@ -47,14 +47,12 @@ async def query_with_retry(inputs: List[str], **kwargs) -> List[JSON]:
         return choices
 
 
-
-
 def create_prompt(template: str, tokenizer: GPTTokenizer, inp: STRINGMAP) -> str:
     truncated_input = {}
     count = tokenizer.token_count(template)
     for k, text in inp.items():
         if not isinstance(text, str):
-            text = ''
+            text = ""
         new_count = count + tokenizer.token_count(text)
         if new_count > tokenizer.max_tokens:
             logging.warning("Truncating input.")
@@ -72,7 +70,7 @@ def create_prompt(template: str, tokenizer: GPTTokenizer, inp: STRINGMAP) -> str
 def create_api_function(spec: EndPointSpec) -> Callable:
     """High level function"""
 
-    spec_kwargs = dataclasses.asdict(spec.args.end_point_args)
+    spec_kwargs = spec.args.end_point_args.as_dict()
 
     tokenizer_args = {
         "model": spec_kwargs.get("model", None),
@@ -155,40 +153,43 @@ async def run_pipeline(
 
 
 if __name__ == "__main__":
-    import os
-    from .specification import APIArgs, OpenAIEndPointArgs
+    def test():
+        """Test script."""
+        import os
+        from .specification import APIArgs, OpenAIEndPointArgs
 
-    api_keys = os.getenv("OPENAI_API_KEY_POOL").split(",")
+        api_keys = os.getenv("OPENAI_API_KEY_POOL").split(",")
 
-    def postprocesser(inps, outs):
-        return [{"text": out["text"]} for out in outs]
+        def postprocesser(inps, outs):
+            return [{"text": out["text"]} for out in outs]
 
-    pipeline = [
-        EndPointSpec(
-            name="test",
-            template="{text}",
-            args=APIArgs(
-                OpenAIEndPointArgs(model="gpt-3.5-turbo", max_tokens=16, n=1, temperature=1.0),
-                max_input_tokens=1024,
-                truncate_input=True,
+        pipeline = [
+            EndPointSpec(
+                name="test",
+                template="{text}",
+                args=APIArgs(
+                    OpenAIEndPointArgs(model="gpt-3.5-turbo", max_tokens=16, n=1, temperature=1.0),
+                    max_input_tokens=1024,
+                    truncate_input=True,
+                ),
+                postprocesser=postprocesser,
             ),
-            postprocesser=postprocesser,
-        ),
-        # EndPointSpec(
-        #     name="test",
-        #     template="{text}",
-        #     args=APIArgs(
-        #         OpenAIEndPointArgs(model="gpt-3.5-turbo", max_tokens=16, n=1, temperature=1.0),
-        #         max_input_tokens=1024,
-        #         truncate_input=True,
-        #     ),
-        # ),
-    ]
+            # EndPointSpec(
+            #     name="test",
+            #     template="{text}",
+            #     args=APIArgs(
+            #         OpenAIEndPointArgs(model="gpt-3.5-turbo", max_tokens=16, n=1, temperature=1.0),
+            #         max_input_tokens=1024,
+            #         truncate_input=True,
+            #     ),
+            # ),
+        ]
 
-    data = [{"text": "Can you count from 1 to 10?"}] * 1
+        data = [{"text": "Can you count from 1 to 10?"}] * 1
 
-    task = run_pipeline(data, pipeline, api_keys=api_keys)
+        task = run_pipeline(data, pipeline, api_keys=api_keys)
 
-    result = asyncio.run(task)
+        result = asyncio.run(task)
 
-    print(result)
+        print(result)
+    test()
