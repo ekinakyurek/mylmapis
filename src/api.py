@@ -50,9 +50,11 @@ async def query_with_retry(inputs: List[str], **kwargs) -> List[JSON]:
 def create_prompt(template: str, tokenizer: GPTTokenizer, inp: STRINGMAP) -> str:
     truncated_input = {}
     count = tokenizer.token_count(template)
+    print("Template token count: ", count)
     for k, text in inp.items():
         if not isinstance(text, str):
             text = ""
+        print(f"{k} count: ", tokenizer.token_count(text))
         new_count = count + tokenizer.token_count(text)
         if new_count > tokenizer.max_tokens:
             logging.warning("Truncating input.")
