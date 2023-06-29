@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import os
+import pickle
 from typing import List, Mapping, Any, Callable, Optional, Tuple
 import openai
 from .specification import EndPointSpec
@@ -42,9 +44,69 @@ async def query_with_retry(inputs: List[str], **kwargs) -> List[JSON]:
     choices = response["choices"]
 
     if is_chat_model:
-        return [{"text": choice["message"]["content"]} for choice in choices]
-    else:
-        return choices
+        choices = [{"text": choice["message"]["content"]} for choice in choices]
+
+    return choices
+
+def freeze(o):
+    if isinstance(o, dict):
+        return frozenset({k: freeze(v) for k, v in o.items()}.items())
+    if isinstance(o, list):
+        return frozenset([freeze(v) for v in o])
+    return o
+
+
+def cacher(cache_path: str, func):
+    """Caches the results of the GPT."""
+    async def wrapper(inputs: List[str], **kwargs):
+        kwargs_key = kwargs.copy()
+        del kwargs_key['api_key']
+        del kwargs_key['logit_bias']
+        kwargs_key['stop'] = tuple(kwargs_key['stop'])
+
+        kwargs_key = frozenset(kwargs_key.items())
+
+        # find unseen inputs
+        unseen = []
+
+        if os.path.exists(cache_path):
+            with open(cache_path, "rb") as f:
+                cache = pickle.load(f)
+        else:
+            cache = {}
+            with open(cache_path, "wb") as f:
+                pickle.dump(cache, f)
+
+        for inp in inputs:
+            key = (inp, kwargs_key)
+            if key not in cache:
+                unseen.append(inp)
+
+        # get results for unseen inputs
+        outputs = await func(unseen, **kwargs)
+
+        # reload cache
+        with open(cache_path, "rb") as handle:
+            cache = pickle.load(handle)
+
+        # add results to cache
+        for inp, out in zip(unseen, outputs):
+            key = (inp, kwargs_key)
+            cache[key] = out
+
+        # save cache
+        with open(cache_path, "wb") as handle:
+            pickle.dump(cache, handle)
+
+        # get results from cache
+        outputs = []
+        for inp in inputs:
+            key = (inp, kwargs_key)
+            outputs.append(cache[key])
+
+        return outputs
+    return wrapper
+
 
 
 def create_prompt(template: str, tokenizer: GPTTokenizer, inp: STRINGMAP) -> str:
@@ -57,7 +119,7 @@ def create_prompt(template: str, tokenizer: GPTTokenizer, inp: STRINGMAP) -> str
         # print(f"{k} count: ", tokenizer.token_count(text))
         new_count = count + tokenizer.token_count(text)
         if new_count > tokenizer.max_tokens:
-            logging.warning("Truncating input.")
+            # logging.warning("Truncating input.")
             truncated_input[k] = tokenizer.truncate(text, tokenizer.max_tokens - count)
             count += tokenizer.token_count(truncated_input[k])
         else:
@@ -69,7 +131,7 @@ def create_prompt(template: str, tokenizer: GPTTokenizer, inp: STRINGMAP) -> str
     return prompt
 
 
-def create_api_function(spec: EndPointSpec) -> Callable:
+def create_api_function(spec: EndPointSpec, cache_path: Optional[str] = None) -> Callable:
     """High level function"""
 
     spec_kwargs = spec.args.end_point_args.as_dict()
@@ -80,6 +142,11 @@ def create_api_function(spec: EndPointSpec) -> Callable:
     }
 
     tokenizer = GPTTokenizer(**tokenizer_args)
+
+    if cache_path:
+        caller = cacher(cache_path, query_with_retry)
+    else:
+        caller = query_with_retry
 
     async def api_function(
         inputs: List[JSON],
@@ -99,7 +166,7 @@ def create_api_function(spec: EndPointSpec) -> Callable:
         prompts = [create_prompt(spec.template, tokenizer, inp) for inp in processed]
         # print("prompts: ", prompts)
         # Call model API with prompts
-        generations = await query_with_retry(prompts, **api_kwargs)
+        generations = await caller(prompts, **api_kwargs)
 
         outputs = spec.postprocesser(inputs, generations)
 
@@ -141,12 +208,13 @@ async def run(
 async def run_pipeline(
     data: List[JSON],
     pipeline: List[EndPointSpec],
+    cache_path: Optional[str] = None,
     **kwargs,
 ):
     """Runs the pipeline on the data."""
     inputs = data
     for _, spec in enumerate(pipeline):
-        api_function = create_api_function(spec)
+        api_function = create_api_function(spec, cache_path=cache_path)
         # print("before api call", inputs)
         inputs = await run(inputs, api_function, **kwargs)
         # print("after api call", inputs)
