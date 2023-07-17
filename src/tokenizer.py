@@ -6,13 +6,32 @@ class GPTTokenizer:
 
     def __init__(self,
                  model: str = "text-davinci-003",
-                 max_tokens: int = 4096):
+                 max_tokens: int = 4096,
+                 new_special_tokens: Optional[List[str]] = None,):
         self.model = model
         try:
-            self.tokenizer = tiktoken.encoding_for_model(model)
+            tokenizer = tiktoken.encoding_for_model(model)
         except KeyError:
-            self.tokenizer = tiktoken.encoding_for_model("text-davinci-003")
+            tokenizer = tiktoken.encoding_for_model("text-davinci-003")
 
+        if new_special_tokens:
+            max_tokens_value = tokenizer.max_token_value
+            extended_tokenizer = tiktoken.Encoding(
+                # If you're changing the set of special tokens, make sure to use a different name
+                # It should be clear from the name what behaviour to expect.
+                name=model + "-special",
+                pat_str=tokenizer._pat_str,
+                mergeable_ranks=tokenizer._mergeable_ranks,
+                special_tokens={
+                    **tokenizer._special_tokens,
+                    "<|startoftext|>": max_tokens_value + 1,
+                    "<|vid_start|>": max_tokens_value + 2,
+                    "<|vid_end|>": max_tokens_value + 3,
+                }
+            )
+            tokenizer = extended_tokenizer
+
+        self.tokenizer = tokenizer
         self.max_tokens = max_tokens
 
     def token_count(self, text: str, **kwargs) -> int:
