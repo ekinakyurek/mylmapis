@@ -4,6 +4,8 @@ import os
 import pickle
 from typing import List, Mapping, Any, Callable, Optional, Tuple
 import openai
+from diskcache import Cache
+
 from .specification import EndPointSpec
 from .utils import batch
 from .utils import SafeFormat
@@ -58,6 +60,9 @@ def freeze(o):
 
 def cacher(cache_path: str, func):
     """Caches the results of the GPT."""
+    print("cache_path: ", cache_path)
+    cache = Cache(cache_path, statistics=True)
+
     async def wrapper(inputs: List[str], **kwargs):
         kwargs_key = kwargs.copy()
         del kwargs_key['api_key']
@@ -69,40 +74,24 @@ def cacher(cache_path: str, func):
         # find unseen inputs
         unseen = []
 
-        if os.path.exists(cache_path):
-            with open(cache_path, "rb") as f:
-                cache = pickle.load(f)
-        else:
-            cache = {}
-            with open(cache_path, "wb") as f:
-                pickle.dump(cache, f)
-
         for inp in inputs:
             key = (inp, kwargs_key)
-            if key not in cache:
+            if cache.get(key) is None:
                 unseen.append(inp)
 
         # get results for unseen inputs
         outputs = await func(unseen, **kwargs)
 
-        # reload cache
-        with open(cache_path, "rb") as handle:
-            cache = pickle.load(handle)
-
         # add results to cache
         for inp, out in zip(unseen, outputs):
             key = (inp, kwargs_key)
-            cache[key] = out
-
-        # save cache
-        with open(cache_path, "wb") as handle:
-            pickle.dump(cache, handle)
+            cache.add(key, out)
 
         # get results from cache
         outputs = []
         for inp in inputs:
             key = (inp, kwargs_key)
-            outputs.append(cache[key])
+            outputs.append(cache.get(key))
 
         return outputs
     return wrapper
