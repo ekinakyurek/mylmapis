@@ -60,39 +60,39 @@ def freeze(o):
 
 def cacher(cache_path: str, func):
     """Caches the results of the GPT."""
-    print("cache_path: ", cache_path)
-    cache = Cache(cache_path, statistics=True)
+    # print("cache_path: ", cache_path)
+    cache = Cache(cache_path, statistics=True, size_limit=100e9)
 
     async def wrapper(inputs: List[str], **kwargs):
         kwargs_key = kwargs.copy()
         del kwargs_key['api_key']
+        # FIXME: allow logit_bias to be cached
         del kwargs_key['logit_bias']
         kwargs_key['stop'] = tuple(kwargs_key['stop'])
-
-        kwargs_key = frozenset(kwargs_key.items())
-
+        kwargs_key = tuple(sorted(frozenset(kwargs_key.items())))
         # find unseen inputs
         unseen = []
 
         for inp in inputs:
-            key = (inp, kwargs_key)
+            key = (("inp", inp),) + kwargs_key
             if cache.get(key) is None:
                 unseen.append(inp)
+            else:
+                print("cache hit")
 
         # get results for unseen inputs
         outputs = await func(unseen, **kwargs)
 
         # add results to cache
         for inp, out in zip(unseen, outputs):
-            key = (inp, kwargs_key)
+            key = (("inp", inp),) + kwargs_key
             cache.add(key, out)
 
         # get results from cache
         outputs = []
         for inp in inputs:
-            key = (inp, kwargs_key)
+            key = (("inp", inp),) + kwargs_key
             outputs.append(cache.get(key))
-
         return outputs
     return wrapper
 
@@ -108,7 +108,7 @@ def create_prompt(template: str, tokenizer: GPTTokenizer, inp: STRINGMAP) -> str
         # print(f"{k} count: ", tokenizer.token_count(text))
         new_count = count + tokenizer.token_count(text)
         if new_count > tokenizer.max_tokens:
-            # logging.warning("Truncating input.")
+            logging.warning(f"Truncating input with id {inp['id']}")
             truncated_input[k] = tokenizer.truncate(text, tokenizer.max_tokens - count)
             count += tokenizer.token_count(truncated_input[k])
         else:
@@ -116,7 +116,6 @@ def create_prompt(template: str, tokenizer: GPTTokenizer, inp: STRINGMAP) -> str
             count = new_count
 
     prompt = template.format_map(SafeFormat(truncated_input))
-
     return prompt
 
 
